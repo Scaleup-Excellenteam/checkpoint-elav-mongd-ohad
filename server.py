@@ -7,6 +7,8 @@ rooms = {}
 
 async def handle_client(websocket):
     room = await websocket.recv()
+    username = await websocket.recv()
+
     if room not in rooms:
         rooms[room] = set()
     rooms[room].add(websocket)
@@ -15,9 +17,12 @@ async def handle_client(websocket):
     try:
         async for message in websocket:
             print(f"Received message in room {room}: {message}")
+            
+            full_message = f"{username}: {message}"
+
             for client in rooms[room]:
                 if client != websocket:
-                    await client.send(message)
+                    await client.send(full_message)
     except Exception as e:
         print(f"Error: {e}")
     finally:

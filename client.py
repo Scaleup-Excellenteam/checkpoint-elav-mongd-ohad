@@ -8,11 +8,13 @@ async def receive_messages(websocket):
 
 
 async def main():
-    async with connect("ws://localhost:8765") as websocket:
+    async with connect("ws://192.168.159.26:8765") as websocket:
         print("Connected")
         
-        room = input("Enter Room Name: ")
         
+        username = input("Enter your name: ")
+        room = input("Enter Room Name: ")
+        await websocket.send(username)
         await websocket.send(room)
         
         asyncio.create_task(receive_messages(websocket))
