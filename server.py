@@ -1,20 +1,28 @@
 import asyncio
 from websockets.asyncio.server import serve
 
-clients = set()
+rooms = {}
+
 
 
 async def handle_client(websocket):
-    clients.add(websocket)
+    room = await websocket.recv()
+    if room not in rooms:
+        rooms[room] = set()
+    rooms[room].add(websocket)
+    print(f"Client joined room: {room}")
 
     try:
         async for message in websocket:
-            for client in clients:
+            print(f"Received message in room {room}: {message}")
+            for client in rooms[room]:
                 if client != websocket:
                     await client.send(message)
+    except Exception as e:
+        print(f"Error: {e}")
     finally:
-        clients.remove(websocket)
-
+        rooms[room].remove(websocket)
+        print(f"Client left room: {room}")
 
 async def main():
     async with serve(handle_client, "0.0.0.0", 8765):

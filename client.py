@@ -10,7 +10,11 @@ async def receive_messages(websocket):
 async def main():
     async with connect("ws://localhost:8765") as websocket:
         print("Connected")
-
+        
+        room = input("Enter Room Name: ")
+        
+        await websocket.send(room)
+        
         asyncio.create_task(receive_messages(websocket))
 
         while True:
