@@ -16,13 +16,13 @@ async def main():
     async with connect(f"ws://{server_ip}:8765") as websocket:
         print("Connected")
 
-        username = input("Enter your nickname: ")
-        room = input("Enter Room Name: ")
+        username = input("Enter your nickname: ").strip()
+        room = input("Enter Room Name: ").strip().casefold()
 
         await websocket.send(username)
         await websocket.send(room)
 
-        asyncio.create_task(receive_messages(websocket))
+        receiver_task = asyncio.create_task(receive_messages(websocket))
 
         while True:
             message = await asyncio.to_thread(input, "You: ")
