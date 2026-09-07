@@ -1,7 +1,11 @@
 import asyncio
 import json
 from websockets.asyncio.server import serve
+from discovery import register_server, unregister_server
 from rooms import add_client, get_clients, get_rooms, remove_client, room_exists
+
+
+PORT = 8765
 
 
 async def choose_room(websocket):
@@ -47,9 +51,24 @@ async def handle_client(websocket):
         print(f"Client left room: {room}")
 
 async def main():
-    async with serve(handle_client, "0.0.0.0", 8765):
-        print("Server running")
-        await asyncio.Future()
+    server_name = input("Choose a server name: ").strip()
+    if not server_name:
+        server_name = "chat-server"
+
+    zeroconf, service_info, advertised_name, server_ip = await asyncio.to_thread(
+        register_server, server_name, PORT
+    )
+
+    try:
+        async with serve(handle_client, "0.0.0.0", PORT):
+            print(f"Server '{advertised_name}' running at {server_ip}:{PORT}")
+            await asyncio.Future()
+    finally:
+        await asyncio.to_thread(unregister_server, zeroconf, service_info)
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nServer stopped")
