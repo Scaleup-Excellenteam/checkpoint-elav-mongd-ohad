@@ -4,19 +4,24 @@ from websockets.asyncio.client import connect
 
 async def receive_messages(websocket):
     async for message in websocket:
-        print("\nOther:", message)
+        print("\n" + message)
 
 
 async def main():
-    async with connect("ws://192.168.159.26:8765") as websocket:
+    server_ip = input("Enter server IP (leave empty for localhost): ")
+
+    if server_ip == "":
+        server_ip = "localhost"
+
+    async with connect(f"ws://{server_ip}:8765") as websocket:
         print("Connected")
-        
-        
-        username = input("Enter your name: ")
+
+        username = input("Enter your nickname: ")
         room = input("Enter Room Name: ")
+
         await websocket.send(username)
         await websocket.send(room)
-        
+
         asyncio.create_task(receive_messages(websocket))
 
         while True:
