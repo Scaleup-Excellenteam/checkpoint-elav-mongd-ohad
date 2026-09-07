@@ -1,6 +1,7 @@
 import asyncio
 import json
 from websockets.asyncio.client import connect
+from discovery import discover_servers
 
 
 async def receive_messages(websocket):
@@ -48,13 +49,44 @@ async def choose_room(websocket):
         print(f"Error: {response['message']}")
 
 
+async def choose_server():
+    while True:
+        print("\n1. Find servers on this network")
+        print("2. Connect to localhost")
+        choice = input("Choose an option: ").strip()
+
+        if choice == "1":
+            print("Searching for chat servers...")
+            servers = await asyncio.to_thread(discover_servers)
+
+            if not servers:
+                print("No chat servers found. Try again or use localhost.")
+                continue
+
+            for index, server in enumerate(servers, start=1):
+                print(f"{index}. {server['name']} ({server['ip']}:{server['port']})")
+
+            try:
+                server_index = int(input("Choose a server: ")) - 1
+                if not 0 <= server_index < len(servers):
+                    raise IndexError
+            except (ValueError, IndexError):
+                print("Invalid server number")
+                continue
+
+            server = servers[server_index]
+            return server["ip"], server["port"]
+
+        if choice == "2":
+            return "localhost", 8765
+
+        print("Invalid option")
+
+
 async def main():
-    server_ip = input("Enter server IP (leave empty for localhost): ")
+    server_ip, server_port = await choose_server()
 
-    if server_ip == "":
-        server_ip = "localhost"
-
-    async with connect(f"ws://{server_ip}:8765") as websocket:
+    async with connect(f"ws://{server_ip}:{server_port}") as websocket:
         print("Connected")
 
         username = input("Enter your nickname: ").strip()
@@ -68,4 +100,8 @@ async def main():
             await websocket.send(message)
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nDisconnected")

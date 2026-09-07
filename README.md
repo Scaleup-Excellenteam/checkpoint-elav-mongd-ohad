@@ -7,6 +7,8 @@ other clients in that room.
 ## Features
 
 - Async WebSocket server and client.
+- Automatic discovery of chat servers on the local network.
+- Localhost connection option for running everything on one computer.
 - Multiple clients can connect concurrently.
 - Create new rooms.
 - List and join active rooms.
@@ -18,9 +20,11 @@ other clients in that room.
 
 ```text
 .
-|-- client.py   # CLI client and room menu
-|-- server.py   # WebSocket server and message routing
-|-- rooms.py    # In-memory room management
+|-- client.py      # CLI client, server selection, and room menu
+|-- server.py      # WebSocket server and message routing
+|-- discovery.py   # Zeroconf server advertising and discovery
+|-- rooms.py       # In-memory room management
+|-- requirements.txt
 `-- README.md
 ```
 
@@ -35,7 +39,7 @@ The `rooms.py` module provides these operations:
 ## Requirements
 
 - Python 3.11 or newer
-- The `websockets` package
+- The packages listed in `requirements.txt` (`websockets` and `zeroconf`)
 
 Install the dependency:
 
@@ -51,14 +55,25 @@ Start the server in one terminal:
 python server.py
 ```
 
+Enter a short server name, for example `elav`. The server advertises this name
+on the local network while it is running.
+
 Start each client in a separate terminal:
 
 ```powershell
 python client.py
 ```
 
-Leave the server IP empty when the client runs on the same computer. Each
-client enters a nickname and then chooses one of the following options:
+The client first chooses how to connect:
+
+```text
+1. Find servers on this network
+2. Connect to localhost
+```
+
+The first option searches for a few seconds and displays the active chat
+servers. After connecting, each client enters a nickname and chooses one of
+the following room options:
 
 ```text
 1. Create a new room
@@ -78,9 +93,11 @@ On the server computer, find the active Wi-Fi IPv4 address:
 ipconfig
 ```
 
-Run `client.py` on the other computer and enter that IPv4 address when prompted.
+Run `client.py` on the other computer and choose `Find servers on this network`.
 The server listens on `0.0.0.0:8765`, so Windows Firewall must allow inbound
-TCP connections to Python on port `8765`.
+TCP connections to Python on port `8765`. Some public or institutional networks
+block the multicast traffic used by Zeroconf discovery; on those networks,
+automatic discovery may not work.
 
 Test network access from the client computer:
 
@@ -94,6 +111,8 @@ Test-NetConnection SERVER_IP -Port 8765
 
 ```text
 Client connects
+  -> discovers and selects a server (or uses localhost)
+  -> opens a WebSocket connection
   -> sends nickname
   -> receives active room list
   -> creates or joins a room
