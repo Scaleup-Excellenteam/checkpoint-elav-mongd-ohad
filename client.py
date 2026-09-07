@@ -1,6 +1,9 @@
 import asyncio
 import socket
 from websockets.asyncio.client import connect
+from zeroconf import Zeroconf
+
+SERVICE_TYPE = "_chatid._tcp.local."
 
 
 async def receive_messages(websocket):
@@ -8,17 +11,27 @@ async def receive_messages(websocket):
         print("\n" + message)
 
 
-async def main():
-    hostname = input("Enter server hostname (leave empty for localhost): ").strip()
-
-    if hostname == "":
-        hostname = "localhost"
-
+def resolve_id(service_id, timeout=3.0):
+    zeroconf = Zeroconf()
     try:
-        server_ip = socket.gethostbyname(hostname)
-    except socket.gaierror:
-        print(f"Could not resolve hostname: {hostname}")
-        return
+        info = zeroconf.get_service_info(SERVICE_TYPE, f"{service_id}.{SERVICE_TYPE}", timeout=timeout * 1000)
+        if info is None or not info.addresses:
+            return None
+        return socket.inet_ntoa(info.addresses[0])
+    finally:
+        zeroconf.close()
+
+
+async def main():
+    service_id = input("Enter server ID (leave empty for localhost): ").strip()
+
+    if service_id == "":
+        server_ip = "localhost"
+    else:
+        server_ip = await asyncio.to_thread(resolve_id, service_id)
+        if server_ip is None:
+            print(f"Could not find server with ID: {service_id}")
+            return
 
     async with connect(f"ws://{server_ip}:8765") as websocket:
         print("Connected")
