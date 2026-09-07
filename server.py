@@ -41,7 +41,7 @@ async def handle_client(websocket):
 
     try:
         async for message in websocket:
-            print(f"Received message in room {room}: {message}")
+            print(f"{username} in room {room}: {message}")
             
             full_message = f"{username}: {message}"
 
