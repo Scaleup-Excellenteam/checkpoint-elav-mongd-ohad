@@ -1,4 +1,5 @@
 import asyncio
+import socket
 from websockets.asyncio.client import connect
 
 
@@ -8,10 +9,16 @@ async def receive_messages(websocket):
 
 
 async def main():
-    server_ip = input("Enter server IP (leave empty for localhost): ")
+    hostname = input("Enter server hostname (leave empty for localhost): ").strip()
 
-    if server_ip == "":
-        server_ip = "localhost"
+    if hostname == "":
+        hostname = "localhost"
+
+    try:
+        server_ip = socket.gethostbyname(hostname)
+    except socket.gaierror:
+        print(f"Could not resolve hostname: {hostname}")
+        return
 
     async with connect(f"ws://{server_ip}:8765") as websocket:
         print("Connected")
