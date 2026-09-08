@@ -5,7 +5,55 @@ from websockets.exceptions import ConnectionClosed
 from .discovery import discover_servers
 
 
+def format_server_event(event):
+    """Format a structured server event for the CLI."""
+    code = event.get("code", "")
+    message = event.get("message", "Unknown server event")
+
+    if code == "DLP_BLOCKED":
+        warning_number = event.get("warningNumber", "?")
+        max_warnings = event.get("maxWarnings", "?")
+        remaining = event.get("warningsRemaining")
+        preview = _message_preview(event.get("blockedContent", ""))
+        next_step = (
+            "The next blocked message will disconnect you."
+            if remaining == 0
+            else f"{remaining} warning remains before disconnection."
+        )
+        return (
+            f"SECURITY WARNING {warning_number}/{max_warnings}\n"
+            f"Your message was blocked: \"{preview}\"\n"
+            f"{next_step}"
+        )
+
+    if code == "DLP_TOO_MANY_VIOLATIONS":
+        preview = _message_preview(event.get("blockedContent", ""))
+        return (
+            "SECURITY DISCONNECT\n"
+            f"Your message was blocked: \"{preview}\"\n"
+            f"{message}"
+        )
+
+    if code == "RATE_LIMITED":
+        retry_after = event.get("retryAfterSeconds", "?")
+        return (
+            "RATE LIMIT\n"
+            f"{message}. Try again in {retry_after} seconds."
+        )
+
+    label = "Security" if code.startswith("DLP_") else "Error"
+    return f"{label}: {message}"
+
+
+def _message_preview(content, limit=80):
+    preview = " ".join(str(content).split())
+    if len(preview) <= limit:
+        return preview
+    return preview[: limit - 3] + "..."
+
+
 async def receive_messages(websocket):
+    policy_disconnect_received = False
     try:
         async for message in websocket:
             try:
@@ -15,12 +63,14 @@ async def receive_messages(websocket):
                 continue
 
             if event.get("type") == "error":
-                label = "Blocked" if event.get("code", "").startswith("DLP_") else "Error"
-                print(f"\n{label}: {event['message']}")
+                print("\n" + format_server_event(event))
+                if event.get("code") == "DLP_TOO_MANY_VIOLATIONS":
+                    policy_disconnect_received = True
             else:
                 print("\n" + message)
     except ConnectionClosed as error:
-        print(f"\nDisconnected by server ({error.code}): {error.reason}")
+        if not policy_disconnect_received:
+            print(f"\nDisconnected by server ({error.code}): {error.reason}")
 
 
 async def choose_room(websocket):

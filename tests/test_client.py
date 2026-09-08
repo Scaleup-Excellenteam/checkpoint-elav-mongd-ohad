@@ -4,7 +4,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from chat_app.client import choose_room
+from chat_app.client import choose_room, format_server_event
 
 
 class FakeWebSocket:
@@ -65,6 +65,73 @@ class ClientRoomMenuTests(unittest.IsolatedAsyncioTestCase):
             [json.loads(message) for message in websocket.sent_messages],
             [{"action": "create_room", "room": "general"}],
         )
+
+
+class ClientEventFormattingTests(unittest.TestCase):
+    def test_rate_limit_shows_retry_time(self):
+        output = format_server_event(
+            {
+                "type": "error",
+                "code": "RATE_LIMITED",
+                "message": "You are sending messages too quickly",
+                "retryAfterSeconds": 6,
+            }
+        )
+
+        self.assertEqual(
+            output,
+            "RATE LIMIT\n"
+            "You are sending messages too quickly. Try again in 6 seconds.",
+        )
+
+    def test_first_warning_explains_what_was_blocked(self):
+        output = format_server_event(
+            {
+                "type": "error",
+                "code": "DLP_BLOCKED",
+                "message": "Message blocked",
+                "blockedContent": "add flour",
+                "warningNumber": 1,
+                "maxWarnings": 2,
+                "warningsRemaining": 1,
+            }
+        )
+
+        self.assertEqual(
+            output,
+            "SECURITY WARNING 1/2\n"
+            'Your message was blocked: "add flour"\n'
+            "1 warning remains before disconnection.",
+        )
+
+    def test_final_warning_explains_next_violation_disconnects(self):
+        output = format_server_event(
+            {
+                "type": "error",
+                "code": "DLP_BLOCKED",
+                "message": "Message blocked",
+                "blockedContent": "add yeast",
+                "warningNumber": 2,
+                "maxWarnings": 2,
+                "warningsRemaining": 0,
+            }
+        )
+
+        self.assertIn("SECURITY WARNING 2/2", output)
+        self.assertIn("The next blocked message will disconnect you.", output)
+
+    def test_policy_disconnect_is_distinct_from_a_warning(self):
+        output = format_server_event(
+            {
+                "type": "error",
+                "code": "DLP_TOO_MANY_VIOLATIONS",
+                "message": "Too many security policy violations. You have been disconnected.",
+                "blockedContent": "add cheese",
+            }
+        )
+
+        self.assertIn("SECURITY DISCONNECT", output)
+        self.assertIn('Your message was blocked: "add cheese"', output)
 
 
 if __name__ == "__main__":

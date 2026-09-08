@@ -39,8 +39,12 @@ class MessageRepository:
             name="room_recent_messages",
         )
         await self.collection.create_index(
-            [("sender", ASCENDING), ("sent_at", DESCENDING)],
-            name="sender_recent_messages",
+            [
+                ("room", ASCENDING),
+                ("sender", ASCENDING),
+                ("sent_at", DESCENDING),
+            ],
+            name="room_sender_recent_messages",
         )
 
     async def save_message(self, room, sender, content):

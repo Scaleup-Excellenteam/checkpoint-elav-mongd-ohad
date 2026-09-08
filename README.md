@@ -18,6 +18,7 @@ other clients in that room.
 - Structured server logs are written to the terminal and rotating log files.
 - Messages are persisted in MongoDB before they are sent to a room.
 - Local DLP checks detect and block attempts to share pizza recipes.
+- Per-client Anti-Bot rate limiting rejects message floods.
 
 ## Project structure
 
@@ -25,10 +26,12 @@ other clients in that room.
 .
 |-- chat_app/
 |   |-- __init__.py
+|   |-- anti_bot.py        # Per-client message rate limiting
 |   |-- client.py          # CLI client and menus
 |   |-- database.py        # Async MongoDB message repository
 |   |-- server.py          # WebSocket server and message routing
 |   |-- discovery.py       # Local-network server discovery
+|   |-- dlp_rules.py       # DLP vocabulary, weights, and patterns
 |   |-- logging_config.py  # Console and rotating file logging
 |   |-- moderation.py      # Rule-based filter and local Ollama DLP
 |   `-- rooms.py           # In-memory room management
@@ -87,11 +90,16 @@ before accepting clients.
 
 ## DLP protection
 
-For every new message, the server loads up to 20 room messages from the last
-15 minutes. A lightweight rule check looks for combinations of ingredients,
-cooking actions, quantities, temperature, and timing. Ordinary messages skip
-the model. Suspicious context is sent to the local `qwen3:4b` model through
-Ollama using a strict JSON response schema. The chat and its DLP vocabulary are
+For every new message, the server loads up to 20 messages from the same sender
+and room from the last 15 minutes. A lightweight personal rule score looks for
+combinations of ingredients, cooking actions, quantities, temperature, and
+timing. Sensitive words such as `recipe`, `formula`, and `confidential` carry
+more weight than an ingredient, while a general word such as `secret` is only a
+weak signal. Other room members cannot increase this score or the sender's warning
+count. Ordinary messages skip the model. When the model is needed, it receives
+recent room context with sender names so it can understand conversation without
+attributing another member's content as the newest sender's own message. The
+local `qwen3:4b` model returns a strict JSON response, and the DLP vocabulary is
 in English.
 
 The message is stored and delivered only when the DLP decision allows it. If
@@ -102,10 +110,13 @@ message content. Settings can be overridden with:
 ```text
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=qwen3:4b
+OLLAMA_KEEP_ALIVE=30m
 DLP_RULE_THRESHOLD=2
 DLP_BLOCK_CONFIDENCE=0.65
 DLP_HARD_BLOCK_SCORE=6
 DLP_MAX_VIOLATIONS=3
+ANTIBOT_MAX_MESSAGES=5
+ANTIBOT_WINDOW_SECONDS=10
 ```
 
 After a blocked attempt, the sender is watched for 15 minutes. During that
@@ -116,10 +127,25 @@ If 15 minutes pass without another blocked attempt, the warning count resets.
 Blocked messages are retained only in a short-lived in-memory context so that
 splitting a recipe after a block doesn't reset the DLP history. Basic fuzzy
 matching also catches close misspellings such as `suger` instead of `sugar`.
+It also covers common recipe-related misspellings such as `recpie` and
+`peperoni`. Preparation terms include actions such as `preheat`, `ferment`,
+`proof`, `divide`, and `shape`.
 Clear rule violations with a score of 6 or higher are blocked even if the LLM
-misclassifies them. This applies to accumulated context when the newest message
-adds another recipe signal. While a sender is watched, any new ingredient,
-quantity, or cooking action is also blocked even when the model returns `safe`.
+misclassifies them. Three different ingredients sent as short list fragments
+are also blocked, so `flour`, `yeast`, and `water` cannot bypass the policy by
+being split across messages. While a sender is watched, short recipe fragments
+remain blocked, but complete casual sentences such as `I ate pizza with olives`
+are classified by meaning instead of being blocked for the ingredient alone.
+
+## Anti-Bot protection
+
+Each client may send up to 5 chat messages in a rolling 10-second window. An
+additional message is rejected with a retry time. A rejected message is not
+checked by the DLP model, stored in MongoDB, or delivered to the room. The
+limit applies only to chat messages after joining a room; connection setup and
+room selection don't count. Rate-limit state is held in memory and removed
+when the client disconnects. The two Anti-Bot settings above can be overridden
+with environment variables.
 
 ## Run locally
 
