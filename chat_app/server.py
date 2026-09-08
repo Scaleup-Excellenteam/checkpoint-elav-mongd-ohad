@@ -3,6 +3,7 @@ from functools import partial
 import json
 import logging
 from websockets.asyncio.server import serve
+from .anti_bot import AntiBotService
 from .database import MessageRepository
 from .discovery import register_server, unregister_server
 from .logging_config import configure_logging, log_event
@@ -49,7 +50,12 @@ async def choose_room(websocket, username):
             return room
 
 
-async def handle_client(websocket, message_repository=None, moderation_service=None):
+async def handle_client(
+    websocket,
+    message_repository=None,
+    moderation_service=None,
+    anti_bot_service=None,
+):
     remote_address = get_remote_address(websocket)
     username = None
     room = None
@@ -60,6 +66,29 @@ async def handle_client(websocket, message_repository=None, moderation_service=N
         room = await choose_room(websocket, username)
 
         async for message in websocket:
+            if anti_bot_service is not None:
+                rate_limit = anti_bot_service.check_message(websocket)
+                if not rate_limit.allowed:
+                    log_event(
+                        logger,
+                        logging.WARNING,
+                        "ANTIBOT_MESSAGE_REJECTED",
+                        username=username,
+                        room=room,
+                        retry_after_seconds=rate_limit.retry_after_seconds,
+                    )
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "code": "RATE_LIMITED",
+                                "message": "You are sending messages too quickly",
+                                "retryAfterSeconds": rate_limit.retry_after_seconds,
+                            }
+                        )
+                    )
+                    continue
+
             if moderation_service is not None:
                 try:
                     moderation_result = await moderation_service.check_message(
@@ -123,6 +152,7 @@ async def handle_client(websocket, message_repository=None, moderation_service=N
                                         "Too many security policy violations. "
                                         "You have been disconnected."
                                     ),
+                                    "blockedContent": message,
                                     "violationCount": moderation_result.violation_count,
                                 }
                             )
@@ -149,8 +179,10 @@ async def handle_client(websocket, message_repository=None, moderation_service=N
                                     "Message blocked by the company security policy. "
                                     f"{warning_label} {warning_number} of {max_warnings}."
                                 ),
+                                "blockedContent": message,
                                 "warningNumber": warning_number,
                                 "maxWarnings": max_warnings,
+                                "warningsRemaining": max_warnings - warning_number,
                             }
                         )
                     )
@@ -219,6 +251,8 @@ async def handle_client(websocket, message_repository=None, moderation_service=N
             error_type=type(e).__name__,
         )
     finally:
+        if anti_bot_service is not None:
+            anti_bot_service.remove_client(websocket)
         if room is not None:
             remove_client(room, websocket)
         log_event(
@@ -238,6 +272,7 @@ async def main():
     log_event(logger, logging.INFO, "SERVER_STARTING", requested_name=server_name, port=PORT)
     message_repository = MessageRepository()
     moderation_service = DLPService()
+    anti_bot_service = AntiBotService()
 
     try:
         await message_repository.connect()
@@ -276,6 +311,7 @@ async def main():
             handle_client,
             message_repository=message_repository,
             moderation_service=moderation_service,
+            anti_bot_service=anti_bot_service,
         )
         async with serve(client_handler, "0.0.0.0", PORT):
             log_event(
@@ -290,6 +326,7 @@ async def main():
     finally:
         await asyncio.to_thread(unregister_server, zeroconf, service_info)
         await moderation_service.close()
+        anti_bot_service.clear()
         await message_repository.close()
         log_event(logger, logging.INFO, "DLP_STOPPED", model=moderation_service.model)
         log_event(logger, logging.INFO, "DATABASE_DISCONNECTED")

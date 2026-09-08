@@ -13,6 +13,7 @@ from websockets.exceptions import ConnectionClosed
 
 from chat_app import rooms
 from chat_app import server as server_module
+from chat_app.anti_bot import AntiBotService
 from chat_app.moderation import ModerationResult
 
 
@@ -147,8 +148,48 @@ class ServerIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(error["code"], "DLP_BLOCKED")
         self.assertEqual(error["warningNumber"], 1)
+        self.assertEqual(error["warningsRemaining"], 1)
+        self.assertEqual(
+            error["blockedContent"],
+            "Add 500 grams of flour and yeast",
+        )
         self.assertEqual(repository.messages, [])
         self.assertNotIn("Add 500 grams of flour and yeast", self.log_output.getvalue())
+
+    async def test_rate_limited_message_skips_dlp_and_database(self):
+        repository = FakeMessageRepository()
+        moderation_service = FakeModerationService(allowed=True)
+        anti_bot_service = AntiBotService(max_messages=1, window_seconds=10)
+        handler = partial(
+            server_module.handle_client,
+            message_repository=repository,
+            moderation_service=moderation_service,
+            anti_bot_service=anti_bot_service,
+        )
+
+        async with serve(handler, "127.0.0.1", 0) as chat_server:
+            port = chat_server.sockets[0].getsockname()[1]
+
+            async with connect(f"ws://127.0.0.1:{port}") as client:
+                await client.send("alice")
+                await client.recv()
+                await client.send(
+                    json.dumps({"action": "create_room", "room": "general"})
+                )
+                await client.recv()
+
+                await client.send("first message")
+                await client.send("message flood")
+                error = json.loads(await client.recv())
+
+        self.assertEqual(error["code"], "RATE_LIMITED")
+        self.assertGreaterEqual(error["retryAfterSeconds"], 1)
+        self.assertEqual(
+            repository.messages,
+            [{"room": "general", "sender": "alice", "content": "first message"}],
+        )
+        self.assertEqual(len(moderation_service.checked_messages), 1)
+        self.assertIn("ANTIBOT_MESSAGE_REJECTED", self.log_output.getvalue())
 
     async def test_third_dlp_violation_disconnects_client(self):
         repository = FakeMessageRepository()
@@ -185,6 +226,7 @@ class ServerIntegrationTests(unittest.IsolatedAsyncioTestCase):
                     disconnected["code"],
                     "DLP_TOO_MANY_VIOLATIONS",
                 )
+                self.assertEqual(disconnected["blockedContent"], "add flour")
 
                 with self.assertRaises(ConnectionClosed) as closed:
                     await client.recv()
