@@ -12,6 +12,7 @@ from .rooms import add_client, get_clients, get_rooms, remove_client, room_exist
 
 
 PORT = 8765
+BLOCKED_MESSAGE_PLACEHOLDER = "[Message blocked by security policy]"
 logger = configure_logging()
 
 
@@ -134,6 +135,13 @@ async def handle_client(
                     )
 
                 if not moderation_result.allowed:
+                    blocked_notice = (
+                        f"{username}: {BLOCKED_MESSAGE_PLACEHOLDER}"
+                    )
+                    for client in get_clients(room):
+                        if client != websocket:
+                            await client.send(blocked_notice)
+
                     if moderation_result.should_disconnect:
                         log_event(
                             logger,
