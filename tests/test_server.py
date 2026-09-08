@@ -135,16 +135,25 @@ class ServerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         async with serve(handler, "127.0.0.1", 0) as chat_server:
             port = chat_server.sockets[0].getsockname()[1]
 
-            async with connect(f"ws://127.0.0.1:{port}") as client:
-                await client.send("alice")
-                await client.recv()
-                await client.send(
+            async with connect(f"ws://127.0.0.1:{port}") as alice:
+                await alice.send("alice")
+                await alice.recv()
+                await alice.send(
                     json.dumps({"action": "create_room", "room": "general"})
                 )
-                await client.recv()
-                await client.send("Add 500 grams of flour and yeast")
+                await alice.recv()
 
-                error = json.loads(await client.recv())
+                async with connect(f"ws://127.0.0.1:{port}") as bob:
+                    await bob.send("bob")
+                    await bob.recv()
+                    await bob.send(
+                        json.dumps({"action": "join_room", "room": "general"})
+                    )
+                    await bob.recv()
+
+                    await alice.send("Add 500 grams of flour and yeast")
+                    error = json.loads(await alice.recv())
+                    blocked_notice = await bob.recv()
 
         self.assertEqual(error["code"], "DLP_BLOCKED")
         self.assertEqual(error["warningNumber"], 1)
@@ -154,6 +163,10 @@ class ServerIntegrationTests(unittest.IsolatedAsyncioTestCase):
             "Add 500 grams of flour and yeast",
         )
         self.assertEqual(repository.messages, [])
+        self.assertEqual(
+            blocked_notice,
+            "alice: [Message blocked by security policy]",
+        )
         self.assertNotIn("Add 500 grams of flour and yeast", self.log_output.getvalue())
 
     async def test_rate_limited_message_skips_dlp_and_database(self):

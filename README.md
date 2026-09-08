@@ -102,7 +102,9 @@ attributing another member's content as the newest sender's own message. The
 local `qwen3:4b` model returns a strict JSON response, and the DLP vocabulary is
 in English.
 
-The message is stored and delivered only when the DLP decision allows it. If
+The message is stored and delivered only when the DLP decision allows it. Other
+room members receive a fixed `[Message blocked by security policy]` notice when
+a message is blocked, without receiving its content or length. If
 Ollama fails during a required check, the message is blocked rather than sent
 without inspection. Logs contain scores, categories, and decisions, but never
 message content. Settings can be overridden with:
